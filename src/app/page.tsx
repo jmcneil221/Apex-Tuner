@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Header } from "@/components/Header";
+import { isSupabaseConfigured } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatLapTime, type TuneWithRelations } from "@/lib/supabase/types";
 
@@ -7,10 +8,7 @@ export const dynamic = "force-dynamic";
 
 async function fetchTopTunes(): Promise<TuneWithRelations[]> {
   try {
-    if (
-      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    ) {
+    if (!isSupabaseConfigured()) {
       return [];
     }
 
@@ -53,7 +51,8 @@ async function fetchTopTunes(): Promise<TuneWithRelations[]> {
 }
 
 export default async function Home() {
-  const tunes = await fetchTopTunes();
+  const configured = isSupabaseConfigured();
+  const tunes = configured ? await fetchTopTunes() : [];
 
   return (
     <div className="flex flex-1 flex-col">
@@ -139,7 +138,7 @@ export default async function Home() {
 
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {tunes.length === 0 ? (
-              <EmptyState />
+              <EmptyState configured={configured} />
             ) : (
               tunes.map((tune) => <TuneCard key={tune.id} tune={tune} />)
             )}
@@ -216,27 +215,48 @@ function TuneCard({ tune }: { tune: TuneWithRelations }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({ configured }: { configured: boolean }) {
   return (
     <div className="col-span-full flex flex-col items-center justify-center rounded-xl border border-dashed border-carbon-800 bg-carbon-900/30 px-6 py-16 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-apex-500/10 text-apex-300 ring-1 ring-apex-500/30">
         <span className="text-xl">◎</span>
       </div>
-      <h3 className="mt-4 text-base font-semibold text-carbon-100">
-        No tunes yet
-      </h3>
-      <p className="mt-2 max-w-md text-sm text-carbon-400">
-        Once Supabase is connected and the first migration is applied, your
-        community tunes will appear here. Set{" "}
-        <code className="rounded bg-carbon-950 px-1.5 py-0.5 font-mono text-[11px] text-apex-300">
-          NEXT_PUBLIC_SUPABASE_URL
-        </code>{" "}
-        and{" "}
-        <code className="rounded bg-carbon-950 px-1.5 py-0.5 font-mono text-[11px] text-apex-300">
-          NEXT_PUBLIC_SUPABASE_ANON_KEY
-        </code>{" "}
-        in <code className="font-mono text-[11px]">.env.local</code>.
-      </p>
+      {configured ? (
+        <>
+          <h3 className="mt-4 text-base font-semibold text-carbon-100">
+            No tunes published yet
+          </h3>
+          <p className="mt-2 max-w-md text-sm text-carbon-400">
+            Be the first to publish a setup sheet. Cars and tracks come from
+            the seed data; the leaderboard fills up as the community publishes
+            tunes.
+          </p>
+          <Link
+            href="/tunes/new"
+            className="mt-5 inline-flex h-10 items-center justify-center rounded-full bg-apex-500 px-5 text-sm font-semibold text-carbon-950 shadow-apex transition hover:bg-apex-400"
+          >
+            Publish the first tune
+          </Link>
+        </>
+      ) : (
+        <>
+          <h3 className="mt-4 text-base font-semibold text-carbon-100">
+            Supabase not configured
+          </h3>
+          <p className="mt-2 max-w-md text-sm text-carbon-400">
+            Set{" "}
+            <code className="rounded bg-carbon-950 px-1.5 py-0.5 font-mono text-[11px] text-apex-300">
+              NEXT_PUBLIC_SUPABASE_URL
+            </code>{" "}
+            and{" "}
+            <code className="rounded bg-carbon-950 px-1.5 py-0.5 font-mono text-[11px] text-apex-300">
+              NEXT_PUBLIC_SUPABASE_ANON_KEY
+            </code>{" "}
+            in <code className="font-mono text-[11px]">.env.local</code>, then
+            apply the migration and seed.
+          </p>
+        </>
+      )}
     </div>
   );
 }

@@ -1,5 +1,12 @@
 -- ApexTuner — reference seed data
 -- Idempotent: re-running is safe thanks to ON CONFLICT clauses.
+--
+-- The conflict targets must match an actual unique constraint:
+--   cars   → unique (make, model, year)   [migration 0001, line 43]
+--   tracks → unique (name, layout)        [migration 0001, line 58]
+-- Using just `(name)` on tracks would fail with 42P10 because no such
+-- unique constraint exists — and we want multi-layout tracks anyway
+-- (e.g. Nürburgring · Nordschleife vs · 24h vs · GP).
 
 -- =============================================================
 -- Cars: 10 iconic Gran Turismo 7 picks across categories
