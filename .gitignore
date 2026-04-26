@@ -1,0 +1,30 @@
+# env
+.env
+.env.local
+.env.*.local
+
+# node
+node_modules/
+.next/
+out/
+dist/
+build/
+*.log
+next-env.d.ts
+*.tsbuildinfo
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# editor
+.vscode/
+.idea/
+.DS_Store
+
+# supabase local
+supabase/.branches/
+supabase/.temp/
