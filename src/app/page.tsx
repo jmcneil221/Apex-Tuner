@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Header } from "@/components/Header";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatLapTime, type TuneWithRelations } from "@/lib/supabase/types";
 
@@ -56,43 +57,7 @@ export default async function Home() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <header className="border-b border-carbon-800/80 bg-carbon-950/60 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
-          <Link href="/" className="flex items-center gap-3">
-            <span className="relative flex h-9 w-9 items-center justify-center rounded-md bg-carbon-900 ring-1 ring-apex-500/40">
-              <span className="absolute inset-0 rounded-md bg-apex-500/10 blur-md" />
-              <span className="relative font-mono text-sm font-bold text-apex-300">
-                AT
-              </span>
-            </span>
-            <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold tracking-[0.2em] text-carbon-200">
-                APEXTUNER
-              </span>
-              <span className="text-[10px] uppercase tracking-[0.3em] text-apex-400/80">
-                GT7 Telemetry · Tuning
-              </span>
-            </div>
-          </Link>
-          <nav className="hidden items-center gap-6 text-sm text-carbon-300 sm:flex">
-            <Link className="hover:text-apex-300" href="/tunes">
-              Tunes
-            </Link>
-            <Link className="hover:text-apex-300" href="/cars">
-              Cars
-            </Link>
-            <Link className="hover:text-apex-300" href="/tracks">
-              Tracks
-            </Link>
-            <Link
-              className="rounded-full border border-apex-500/40 bg-apex-500/10 px-4 py-1.5 text-apex-200 transition hover:bg-apex-500/20"
-              href="/login"
-            >
-              Sign in
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <main className="flex flex-1 flex-col">
         <section className="relative overflow-hidden border-b border-carbon-800/80">
