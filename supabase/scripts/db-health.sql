@@ -59,3 +59,104 @@ from pg_policies
 where schemaname = 'public'
   and tablename in ('profiles','cars','tracks','tunes','tune_votes')
 order by tablename, cmd, policyname;
+
+-- =================================================================
+-- 7. SECURITY DEFINER hardening audit
+-- After migration 0003 every SECURITY DEFINER function in public
+-- should pin search_path to '' (empty). Anything else (including
+-- NULL/unset) inherits the caller's search_path and is vulnerable to
+-- search_path injection. Unknown rows here = candidates for the rogue
+-- function.
+-- =================================================================
+select
+  n.nspname as schema,
+  p.proname as function,
+  pg_get_function_arguments(p.oid) as args,
+  p.prosecdef as security_definer,
+  coalesce(
+    array_to_string(
+      array(
+        select unnest(p.proconfig) where unnest like 'search_path=%'
+      ),
+      ', '
+    ),
+    '(unset — caller-controlled)'
+  ) as search_path
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.prosecdef = true
+order by p.proname;
+
+-- =================================================================
+-- 8. Rogue-function hunt
+-- Find any function whose source body contains the offending UPDATE
+-- pattern from the seed-failure error message. If this returns rows,
+-- you've located the ghost.
+-- =================================================================
+select
+  n.nspname as schema,
+  p.proname as function,
+  l.lanname as language,
+  p.prosecdef as security_definer,
+  pg_get_function_arguments(p.oid) as args
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+join pg_language l on l.oid = p.prolang
+where pg_get_functiondef(p.oid) ilike '%target_user_id%'
+   or pg_get_functiondef(p.oid) ilike '%update%tunes%set%author_id%';
+
+-- For each match above, dump the full source so we can read it. Edit
+-- the schema/function names and uncomment:
+-- select pg_get_functiondef(p.oid) as source
+-- from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+-- where n.nspname = 'public' and p.proname = '<function-name-here>';
+
+-- =================================================================
+-- 9. Triggers across every schema that touch our public tables
+-- Catches triggers defined in auth, storage, etc. that fire on auth
+-- user signup or profile creation and reach into public.tunes.
+-- =================================================================
+select
+  t.tgname as trigger,
+  c.relname as on_table,
+  n.nspname as schema,
+  p.proname as function,
+  fn.nspname as function_schema,
+  pg_get_triggerdef(t.oid) as definition
+from pg_trigger t
+join pg_class c on c.oid = t.tgrelid
+join pg_namespace n on n.oid = c.relnamespace
+join pg_proc p on p.oid = t.tgfoid
+join pg_namespace fn on fn.oid = p.pronamespace
+where not t.tgisinternal
+  and (
+    n.nspname in ('public','auth')
+    or pg_get_functiondef(p.oid) ilike '%public.tunes%'
+    or pg_get_functiondef(p.oid) ilike '%target_user_id%'
+  )
+order by schema, on_table, trigger;
+
+-- =================================================================
+-- 10. Verify migration 0003 is applied
+-- These two functions should have search_path '' and the trigger
+-- should exist.
+-- =================================================================
+select 'tune_votes_sync_count'      as expected, exists(
+  select 1 from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname='public' and p.proname='tune_votes_sync_count'
+    and 'search_path=' = any(p.proconfig)
+) as hardened;
+
+select 'handle_new_user'            as expected, exists(
+  select 1 from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname='public' and p.proname='handle_new_user'
+    and 'search_path=' = any(p.proconfig)
+) as hardened;
+
+select 'tunes_author_id_immutable'  as expected, exists(
+  select 1 from pg_trigger
+  where tgname='tunes_author_id_immutable' and not tgisinternal
+) as installed;
