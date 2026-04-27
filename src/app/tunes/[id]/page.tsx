@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Header } from "@/components/Header";
 import { SetupSheet } from "@/components/SetupSheet";
 import { UpvoteButton } from "@/components/UpvoteButton";
+import { DeleteTuneButton } from "@/components/DeleteTuneButton";
 import { isSupabaseConfigured } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -25,6 +26,7 @@ type LoadResult =
       tune: TuneWithRelations;
       voted: boolean;
       signedIn: boolean;
+      isOwner: boolean;
     };
 
 async function loadTune(id: string): Promise<LoadResult> {
@@ -72,7 +74,13 @@ async function loadTune(id: string): Promise<LoadResult> {
       voted = Boolean(vote);
     }
 
-    return { status: "ok", tune, voted, signedIn: Boolean(user) };
+    return {
+      status: "ok",
+      tune,
+      voted,
+      signedIn: Boolean(user),
+      isOwner: Boolean(user) && tune.author_id === user!.id,
+    };
   } catch (err) {
     return {
       status: "error",
@@ -129,7 +137,7 @@ export default async function TuneDetailPage({ params }: { params: Params }) {
     );
   }
 
-  const { tune, voted, signedIn } = result;
+  const { tune, voted, signedIn, isOwner } = result;
   const car = tune.cars
     ? `${tune.cars.year} ${tune.cars.make} ${tune.cars.model}`
     : "Unknown car";
@@ -221,6 +229,17 @@ export default async function TuneDetailPage({ params }: { params: Params }) {
                 voted={voted}
                 signedIn={signedIn}
               />
+              {isOwner ? (
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/tunes/${tune.id}/edit`}
+                    className="rounded-full border border-carbon-700 bg-carbon-900/60 px-4 py-2 text-xs font-semibold text-carbon-200 transition hover:border-apex-500/40 hover:text-apex-200"
+                  >
+                    Edit
+                  </Link>
+                  <DeleteTuneButton tuneId={tune.id} title={tune.title} />
+                </div>
+              ) : null}
             </div>
           </div>
 

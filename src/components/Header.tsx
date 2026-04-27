@@ -49,7 +49,10 @@ export async function Header() {
               >
                 New tune
               </Link>
-              <div className="flex items-center gap-2">
+              <Link
+                href={username ? `/profile/${username}` : "/"}
+                className="flex items-center gap-2 hover:text-apex-300"
+              >
                 {avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -63,7 +66,7 @@ export async function Header() {
                   </span>
                 )}
                 <span className="text-xs text-carbon-300">{username}</span>
-              </div>
+              </Link>
               <form action={signOut}>
                 <button
                   type="submit"

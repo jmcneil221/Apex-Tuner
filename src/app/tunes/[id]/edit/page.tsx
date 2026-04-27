@@ -1,27 +1,32 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Header } from "@/components/Header";
 import {
   TuneForm,
   type CarOption,
   type TrackOption,
 } from "@/components/TuneForm";
-import { createTune } from "@/lib/actions/tunes";
+import { updateTune } from "@/lib/actions/tunes";
 import { getCurrentUser, isSupabaseConfigured } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { Tune } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
+
+type Params = Promise<{ id: string }>;
+type SearchParams = Promise<{ error?: string }>;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function fetchCars(): Promise<CarOption[]> {
   if (!isSupabaseConfigured()) return [];
   try {
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("cars")
       .select("id, make, model, year, drivetrain, category")
-      .order("make", { ascending: true })
+      .order("make")
       .order("year", { ascending: false });
-    if (error) return [];
     return (data ?? []) as CarOption[];
   } catch {
     return [];
@@ -32,28 +37,47 @@ async function fetchTracks(): Promise<TrackOption[]> {
   if (!isSupabaseConfigured()) return [];
   try {
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("tracks")
       .select("id, name, layout")
-      .order("name", { ascending: true });
-    if (error) return [];
+      .order("name");
     return (data ?? []) as TrackOption[];
   } catch {
     return [];
   }
 }
 
-type SearchParams = Promise<{ error?: string }>;
-
-export default async function NewTunePage({
+export default async function EditTunePage({
+  params,
   searchParams,
 }: {
+  params: Params;
   searchParams: SearchParams;
 }) {
+  const { id } = await params;
   const { error } = await searchParams;
+
+  if (!UUID_RE.test(id)) notFound();
+
   const user = await getCurrentUser();
   if (!user) {
-    redirect("/login?next=/tunes/new");
+    redirect(`/login?next=/tunes/${id}/edit`);
+  }
+
+  if (!isSupabaseConfigured()) {
+    notFound();
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: tune } = await supabase
+    .from("tunes")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!tune) notFound();
+  if (tune.author_id !== user.id) {
+    redirect(`/tunes/${id}?error=Not+your+tune.`);
   }
 
   const [cars, tracks] = await Promise.all([fetchCars(), fetchTracks()]);
@@ -65,18 +89,14 @@ export default async function NewTunePage({
         <div className="mb-8 flex items-center justify-between">
           <div>
             <span className="text-xs uppercase tracking-[0.3em] text-apex-400">
-              Publish
+              Edit
             </span>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-carbon-50">
-              Share a tune
+              {tune.title}
             </h1>
-            <p className="mt-2 max-w-xl text-sm text-carbon-400">
-              Pick the car and (optionally) the track, drop in your setup sheet
-              as JSON, and log your best lap. You can edit it later.
-            </p>
           </div>
           <Link
-            href="/"
+            href={`/tunes/${id}`}
             className="text-xs uppercase tracking-[0.3em] text-carbon-400 hover:text-apex-300"
           >
             Cancel
@@ -86,10 +106,12 @@ export default async function NewTunePage({
         <TuneForm
           cars={cars}
           tracks={tracks}
-          action={createTune}
+          action={updateTune}
+          tune={tune as Tune}
+          tuneId={id}
           error={error ? decodeURIComponent(error) : null}
-          submitLabel="Publish tune"
-          cancelHref="/"
+          submitLabel="Save changes"
+          cancelHref={`/tunes/${id}`}
         />
       </main>
     </div>

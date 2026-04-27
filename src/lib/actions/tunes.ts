@@ -46,10 +46,6 @@ function parseSetup(input: string): ParsedSetup {
   }
 }
 
-function failTune(message: string): never {
-  redirect(`/tunes/new?error=${encodeURIComponent(message)}`);
-}
-
 function parsePositiveInt(value: FormDataEntryValue | null): number | null {
   if (value === null) return null;
   const trimmed = String(value).trim();
@@ -59,7 +55,67 @@ function parsePositiveInt(value: FormDataEntryValue | null): number | null {
   return n;
 }
 
-export async function createTune(formData: FormData) {
+type TuneFields = {
+  car_id: string;
+  track_id: string | null;
+  title: string;
+  description: string | null;
+  setup: Record<string, unknown>;
+  lap_time_ms: number | null;
+  power_hp: number | null;
+  weight_kg: number | null;
+  pp_total: number | null;
+  is_public: boolean;
+};
+
+function extractFields(formData: FormData):
+  | { ok: true; fields: TuneFields }
+  | { ok: false; error: string } {
+  const title = String(formData.get("title") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+  const carId = String(formData.get("car_id") ?? "").trim();
+  const trackIdRaw = String(formData.get("track_id") ?? "").trim();
+  const lapTimeRaw = String(formData.get("lap_time") ?? "").trim();
+  const setupRaw = String(formData.get("setup") ?? "").trim();
+
+  if (title.length < 3 || title.length > 120) {
+    return { ok: false, error: "Title must be between 3 and 120 characters." };
+  }
+  if (!carId) {
+    return { ok: false, error: "Pick a car for this tune." };
+  }
+
+  const lap_time_ms = parseLapTime(lapTimeRaw);
+  if (lapTimeRaw && lap_time_ms === null) {
+    return {
+      ok: false,
+      error: "Lap time must be in mm:ss.sss format (e.g. 1:58.421).",
+    };
+  }
+
+  const setupResult = parseSetup(setupRaw);
+  if (!setupResult.ok) {
+    return { ok: false, error: setupResult.error };
+  }
+
+  return {
+    ok: true,
+    fields: {
+      car_id: carId,
+      track_id: trackIdRaw || null,
+      title,
+      description: description || null,
+      setup: setupResult.value,
+      lap_time_ms,
+      power_hp: parsePositiveInt(formData.get("power_hp")),
+      weight_kg: parsePositiveInt(formData.get("weight_kg")),
+      pp_total: parsePositiveInt(formData.get("pp_total")),
+      is_public: formData.get("is_public") !== null,
+    },
+  };
+}
+
+export async function createTune(formData: FormData): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -69,56 +125,119 @@ export async function createTune(formData: FormData) {
     redirect("/login?next=/tunes/new");
   }
 
-  const title = String(formData.get("title") ?? "").trim();
-  const description = String(formData.get("description") ?? "").trim();
-  const carId = String(formData.get("car_id") ?? "").trim();
-  const trackIdRaw = String(formData.get("track_id") ?? "").trim();
-  const lapTimeRaw = String(formData.get("lap_time") ?? "").trim();
-  const setupRaw = String(formData.get("setup") ?? "").trim();
-  const isPublic = formData.get("is_public") !== null;
-  const power_hp = parsePositiveInt(formData.get("power_hp"));
-  const weight_kg = parsePositiveInt(formData.get("weight_kg"));
-  const pp_total = parsePositiveInt(formData.get("pp_total"));
-
-  if (title.length < 3 || title.length > 120) {
-    failTune("Title must be between 3 and 120 characters.");
-  }
-  if (!carId) {
-    failTune("Pick a car for this tune.");
-  }
-
-  const lap_time_ms = parseLapTime(lapTimeRaw);
-  if (lapTimeRaw && lap_time_ms === null) {
-    failTune("Lap time must be in mm:ss.sss format (e.g. 1:58.421).");
-  }
-
-  const setupResult = parseSetup(setupRaw);
-  if (!setupResult.ok) {
-    failTune(setupResult.error);
+  const parsed = extractFields(formData);
+  if (!parsed.ok) {
+    redirect(`/tunes/new?error=${encodeURIComponent(parsed.error)}`);
   }
 
   const { data, error } = await supabase
     .from("tunes")
-    .insert({
-      author_id: user.id,
-      car_id: carId,
-      track_id: trackIdRaw || null,
-      title,
-      description: description || null,
-      setup: setupResult.value,
-      lap_time_ms,
-      power_hp,
-      weight_kg,
-      pp_total,
-      is_public: isPublic,
-    })
+    .insert({ author_id: user.id, ...parsed.fields })
     .select("id")
     .single();
 
   if (error || !data) {
-    failTune(error?.message ?? "Could not save tune.");
+    redirect(
+      `/tunes/new?error=${encodeURIComponent(error?.message ?? "Could not save tune.")}`,
+    );
   }
 
   revalidatePath("/");
+  revalidatePath("/tunes");
+  redirect(`/tunes/${data.id}`);
+}
+
+export async function updateTune(formData: FormData): Promise<void> {
+  const tuneId = String(formData.get("tune_id") ?? "").trim();
+  if (!tuneId) {
+    redirect("/");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect(`/login?next=/tunes/${tuneId}/edit`);
+  }
+
+  const { data: existing, error: lookupError } = await supabase
+    .from("tunes")
+    .select("id, author_id")
+    .eq("id", tuneId)
+    .maybeSingle();
+
+  if (lookupError || !existing) {
+    redirect(`/tunes/${tuneId}/edit?error=Tune+not+found.`);
+  }
+
+  if (existing.author_id !== user.id) {
+    redirect(`/tunes/${tuneId}?error=Not+your+tune.`);
+  }
+
+  const parsed = extractFields(formData);
+  if (!parsed.ok) {
+    redirect(
+      `/tunes/${tuneId}/edit?error=${encodeURIComponent(parsed.error)}`,
+    );
+  }
+
+  const { error } = await supabase
+    .from("tunes")
+    .update(parsed.fields)
+    .eq("id", tuneId);
+
+  if (error) {
+    redirect(
+      `/tunes/${tuneId}/edit?error=${encodeURIComponent(error.message)}`,
+    );
+  }
+
+  revalidatePath("/");
+  revalidatePath("/tunes");
+  revalidatePath(`/tunes/${tuneId}`);
+  redirect(`/tunes/${tuneId}`);
+}
+
+export async function deleteTune(formData: FormData): Promise<void> {
+  const tuneId = String(formData.get("tune_id") ?? "").trim();
+  if (!tuneId) {
+    redirect("/");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect(`/login?next=/tunes/${tuneId}`);
+  }
+
+  // RLS already enforces ownership on delete; this just gives a clean redirect
+  // with the username when the redirect target is the user's profile.
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const { error } = await supabase
+    .from("tunes")
+    .delete()
+    .eq("id", tuneId)
+    .eq("author_id", user.id);
+
+  if (error) {
+    redirect(`/tunes/${tuneId}?error=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidatePath("/");
+  revalidatePath("/tunes");
+  if (profile?.username) {
+    revalidatePath(`/profile/${profile.username}`);
+    redirect(`/profile/${profile.username}`);
+  }
   redirect("/");
 }
