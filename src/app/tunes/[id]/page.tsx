@@ -44,7 +44,7 @@ async function loadTune(id: string): Promise<LoadResult> {
             created_at, updated_at,
             cars ( make, model, year, drivetrain, category ),
             tracks ( name, layout, country ),
-            profiles ( username, display_name, avatar_url )
+            profiles!tunes_author_id_fkey ( username, display_name, avatar_url )
           `,
         )
         .eq("id", id)
