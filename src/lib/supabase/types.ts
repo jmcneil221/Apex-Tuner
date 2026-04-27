@@ -16,9 +16,25 @@ export type Tune = {
   lap_time_ms: number | null;
   upvote_count: number;
   is_public: boolean;
+  power_hp: number | null;
+  weight_kg: number | null;
+  pp_total: number | null;
+  is_validated: boolean;
   created_at: string;
   updated_at: string;
 };
+
+export function formatBoP(
+  pp: number | null,
+  hp: number | null,
+  kg: number | null,
+): string | null {
+  const parts: string[] = [];
+  if (typeof pp === "number") parts.push(`PP ${pp}`);
+  if (typeof hp === "number") parts.push(`${hp} hp`);
+  if (typeof kg === "number") parts.push(`${kg.toLocaleString()} kg`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
 
 export type TuneWithRelations = Tune & {
   cars: {

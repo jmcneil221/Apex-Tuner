@@ -50,6 +50,15 @@ function failTune(message: string): never {
   redirect(`/tunes/new?error=${encodeURIComponent(message)}`);
 }
 
+function parsePositiveInt(value: FormDataEntryValue | null): number | null {
+  if (value === null) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) return null;
+  return n;
+}
+
 export async function createTune(formData: FormData) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -67,6 +76,9 @@ export async function createTune(formData: FormData) {
   const lapTimeRaw = String(formData.get("lap_time") ?? "").trim();
   const setupRaw = String(formData.get("setup") ?? "").trim();
   const isPublic = formData.get("is_public") !== null;
+  const power_hp = parsePositiveInt(formData.get("power_hp"));
+  const weight_kg = parsePositiveInt(formData.get("weight_kg"));
+  const pp_total = parsePositiveInt(formData.get("pp_total"));
 
   if (title.length < 3 || title.length > 120) {
     failTune("Title must be between 3 and 120 characters.");
@@ -95,6 +107,9 @@ export async function createTune(formData: FormData) {
       description: description || null,
       setup: setupResult.value,
       lap_time_ms,
+      power_hp,
+      weight_kg,
+      pp_total,
       is_public: isPublic,
     })
     .select("id")

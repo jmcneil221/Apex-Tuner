@@ -121,7 +121,8 @@ begin
        and title     = v_title
   ) then
     insert into public.tunes
-      (author_id, car_id, track_id, title, description, setup, lap_time_ms, is_public)
+      (author_id, car_id, track_id, title, description, setup,
+       lap_time_ms, power_hp, weight_kg, pp_total, is_public)
     values (
       v_author_id, v_car_id, v_track_id, v_title,
       'Comfortable BoP setup for long Nordschleife stints. Soft enough to live through the Karussell, stiff enough through Pflanzgarten. Front toe slightly out for trail braking.',
@@ -141,7 +142,7 @@ begin
         "power_restrictor_pct": 95,
         "transmission": { "final_drive": 3.62 }
       } $tune$::jsonb,
-      408235,
+      408235, 478, 1560, 498,
       true
     );
   end if;
@@ -164,7 +165,8 @@ begin
        and title     = v_title
   ) then
     insert into public.tunes
-      (author_id, car_id, track_id, title, description, setup, lap_time_ms, is_public)
+      (author_id, car_id, track_id, title, description, setup,
+       lap_time_ms, power_hp, weight_kg, pp_total, is_public)
     values (
       v_author_id, v_car_id, v_track_id, v_title,
       'Group 1 quali trim. Trail-brake friendly into Les Combes; full-send through Eau Rouge with planted front grip. Fuel map 5 for one-shot pace.',
@@ -185,7 +187,7 @@ begin
         "fuel_map": 5,
         "transmission": { "final_drive": 3.10, "max_speed_kph": 360 }
       } $tune$::jsonb,
-      114812,
+      114812, 700, 830, 972,
       true
     );
   end if;
@@ -208,7 +210,8 @@ begin
        and title     = v_title
   ) then
     insert into public.tunes
-      (author_id, car_id, track_id, title, description, setup, lap_time_ms, is_public)
+      (author_id, car_id, track_id, title, description, setup,
+       lap_time_ms, power_hp, weight_kg, pp_total, is_public)
     values (
       v_author_id, v_car_id, v_track_id, v_title,
       'Light, rev-happy N400 build. Pointy front end on turn-in, planted exit through final corner. Run third gear flat through the dunlop bridge.',
@@ -228,7 +231,7 @@ begin
         "power_restrictor_pct": 100,
         "transmission": { "final_drive": 4.40 }
       } $tune$::jsonb,
-      61847,
+      61847, 270, 1230, 420,
       true
     );
   end if;

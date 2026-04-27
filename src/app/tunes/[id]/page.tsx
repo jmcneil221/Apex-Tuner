@@ -41,6 +41,7 @@ async function loadTune(id: string): Promise<LoadResult> {
             id, author_id, car_id, track_id,
             title, description, setup,
             lap_time_ms, upvote_count, is_public,
+            power_hp, weight_kg, pp_total, is_validated,
             created_at, updated_at,
             cars ( make, model, year, drivetrain, category ),
             tracks ( name, layout, country ),
@@ -170,6 +171,11 @@ export default async function TuneDetailPage({ params }: { params: Params }) {
                     {tune.cars.drivetrain}
                   </span>
                 ) : null}
+                {tune.is_validated ? (
+                  <span className="rounded-full border border-rev-500/30 bg-rev-500/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-rev-200">
+                    Validated
+                  </span>
+                ) : null}
                 {!tune.is_public ? (
                   <span className="rounded-full border border-rev-500/40 bg-rev-500/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-rev-300">
                     Private
@@ -188,13 +194,26 @@ export default async function TuneDetailPage({ params }: { params: Params }) {
             </div>
 
             <div className="flex shrink-0 flex-col items-start gap-4 md:items-end">
-              <div className="text-right">
-                <div className="text-[10px] uppercase tracking-[0.3em] text-carbon-500">
-                  Best lap
-                </div>
-                <div className="font-mono text-3xl font-semibold text-rev-400">
-                  {formatLapTime(tune.lap_time_ms)}
-                </div>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4 md:text-right">
+                <Stat label="Best lap" value={formatLapTime(tune.lap_time_ms)} accent="rev" />
+                <Stat
+                  label="PP"
+                  value={tune.pp_total !== null ? String(tune.pp_total) : "—"}
+                />
+                <Stat
+                  label="Power"
+                  value={
+                    tune.power_hp !== null ? `${tune.power_hp} hp` : "—"
+                  }
+                />
+                <Stat
+                  label="Weight"
+                  value={
+                    tune.weight_kg !== null
+                      ? `${tune.weight_kg.toLocaleString()} kg`
+                      : "—"
+                  }
+                />
               </div>
               <UpvoteButton
                 tuneId={tune.id}
@@ -250,6 +269,32 @@ export default async function TuneDetailPage({ params }: { params: Params }) {
           </pre>
         </details>
       </main>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: "rev";
+}) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[10px] uppercase tracking-[0.3em] text-carbon-500">
+        {label}
+      </span>
+      <span
+        className={[
+          "mt-1 font-mono text-xl font-semibold md:text-2xl",
+          accent === "rev" ? "text-rev-400" : "text-carbon-50",
+        ].join(" ")}
+      >
+        {value}
+      </span>
     </div>
   );
 }

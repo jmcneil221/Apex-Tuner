@@ -1,5 +1,9 @@
 import Link from "next/link";
-import { formatLapTime, type TuneWithRelations } from "@/lib/supabase/types";
+import {
+  formatBoP,
+  formatLapTime,
+  type TuneWithRelations,
+} from "@/lib/supabase/types";
 
 export function TuneCard({ tune }: { tune: TuneWithRelations }) {
   const car = tune.cars
@@ -12,6 +16,7 @@ export function TuneCard({ tune }: { tune: TuneWithRelations }) {
     tune.profiles?.display_name ?? tune.profiles?.username ?? "anonymous";
   const category = tune.cars?.category;
   const drivetrain = tune.cars?.drivetrain;
+  const bop = formatBoP(tune.pp_total, tune.power_hp, tune.weight_kg);
 
   return (
     <Link
@@ -46,7 +51,18 @@ export function TuneCard({ tune }: { tune: TuneWithRelations }) {
               {drivetrain}
             </span>
           ) : null}
+          {tune.is_validated ? (
+            <span className="rounded-full border border-rev-500/30 bg-rev-500/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-rev-200">
+              Validated
+            </span>
+          ) : null}
         </div>
+      ) : null}
+
+      {bop ? (
+        <p className="mt-2 font-mono text-[11px] tracking-wide text-carbon-300">
+          {bop}
+        </p>
       ) : null}
 
       {tune.description ? (

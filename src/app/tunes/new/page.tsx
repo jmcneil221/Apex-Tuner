@@ -179,6 +179,50 @@ export default async function NewTunePage({
             />
           </Field>
 
+          <fieldset>
+            <legend className="text-xs font-medium uppercase tracking-[0.18em] text-carbon-300">
+              Balance of performance
+            </legend>
+            <p className="mt-1 text-[11px] text-carbon-500">
+              Optional. Post-tune values reported by GT7.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <SubField label="PP" hint="e.g. 498">
+                <input
+                  type="number"
+                  name="pp_total"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  placeholder="498"
+                  className={inputCls}
+                />
+              </SubField>
+              <SubField label="Power (hp)" hint="e.g. 478">
+                <input
+                  type="number"
+                  name="power_hp"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  placeholder="478"
+                  className={inputCls}
+                />
+              </SubField>
+              <SubField label="Weight (kg)" hint="e.g. 1560">
+                <input
+                  type="number"
+                  name="weight_kg"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  placeholder="1560"
+                  className={inputCls}
+                />
+              </SubField>
+            </div>
+          </fieldset>
+
           <Field label="Description" hint="Optional notes">
             <textarea
               name="description"
@@ -252,6 +296,28 @@ function Field({
         {hint ? <span className="text-[11px] text-carbon-500">{hint}</span> : null}
       </span>
       <div className="mt-2">{children}</div>
+    </label>
+  );
+}
+
+function SubField({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="flex items-baseline justify-between">
+        <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-carbon-400">
+          {label}
+        </span>
+        {hint ? <span className="text-[10px] text-carbon-500">{hint}</span> : null}
+      </span>
+      <div className="mt-1.5">{children}</div>
     </label>
   );
 }
