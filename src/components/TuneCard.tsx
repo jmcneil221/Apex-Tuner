@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { formatLapTime, type TuneWithRelations } from "@/lib/supabase/types";
 
 export function TuneCard({ tune }: { tune: TuneWithRelations }) {
@@ -13,7 +14,11 @@ export function TuneCard({ tune }: { tune: TuneWithRelations }) {
   const drivetrain = tune.cars?.drivetrain;
 
   return (
-    <article className="group flex flex-col rounded-xl border border-carbon-800 bg-carbon-900/50 p-5 transition hover:border-apex-500/40 hover:bg-carbon-900/80">
+    <Link
+      href={`/tunes/${tune.id}`}
+      className="group block rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-apex-500/60"
+    >
+    <article className="flex flex-col rounded-xl border border-carbon-800 bg-carbon-900/50 p-5 transition group-hover:border-apex-500/40 group-hover:bg-carbon-900/80">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-base font-semibold text-carbon-50 group-hover:text-apex-200">
@@ -62,5 +67,6 @@ export function TuneCard({ tune }: { tune: TuneWithRelations }) {
         </span>
       </footer>
     </article>
+    </Link>
   );
 }

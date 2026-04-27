@@ -31,10 +31,12 @@ export type TuneWithRelations = Tune & {
   tracks: {
     name: string;
     layout: string;
+    country?: string | null;
   } | null;
   profiles: {
     username: string;
     display_name: string | null;
+    avatar_url?: string | null;
   } | null;
 };
 
