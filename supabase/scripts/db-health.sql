@@ -73,15 +73,8 @@ select
   p.proname as function,
   pg_get_function_arguments(p.oid) as args,
   p.prosecdef as security_definer,
-  coalesce(
-    array_to_string(
-      array(
-        select unnest(p.proconfig) where unnest like 'search_path=%'
-      ),
-      ', '
-    ),
-    '(unset — caller-controlled)'
-  ) as search_path
+  coalesce(array_to_string(p.proconfig, ', '),
+           '(unset — caller-controlled)') as config
 from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
@@ -93,6 +86,10 @@ order by p.proname;
 -- Find any function whose source body contains the offending UPDATE
 -- pattern from the seed-failure error message. If this returns rows,
 -- you've located the ghost.
+--
+-- NOTE: prokind = 'f' restricts to regular functions. Without it
+-- pg_get_functiondef() raises 42883 ('"<name>" is an aggregate
+-- function') when it hits aggregates like array_agg in the catalog.
 -- =================================================================
 select
   n.nspname as schema,
@@ -103,8 +100,11 @@ select
 from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 join pg_language l on l.oid = p.prolang
-where pg_get_functiondef(p.oid) ilike '%target_user_id%'
-   or pg_get_functiondef(p.oid) ilike '%update%tunes%set%author_id%';
+where p.prokind = 'f'
+  and (
+    pg_get_functiondef(p.oid) ilike '%target_user_id%'
+    or pg_get_functiondef(p.oid) ilike '%update%tunes%set%author_id%'
+  );
 
 -- For each match above, dump the full source so we can read it. Edit
 -- the schema/function names and uncomment:
@@ -139,24 +139,32 @@ order by schema, on_table, trigger;
 
 -- =================================================================
 -- 10. Verify migration 0003 is applied
--- These two functions should have search_path '' and the trigger
--- should exist.
+-- These two functions should have search_path pinned and the trigger
+-- should exist. The pinned value is stored in pg_proc.proconfig as
+-- 'search_path="…"' (note the embedded quotes for empty/string values),
+-- so we check for the prefix via unnest rather than equality.
 -- =================================================================
 select 'tune_votes_sync_count'      as expected, exists(
-  select 1 from pg_proc p
-  join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname='public' and p.proname='tune_votes_sync_count'
-    and 'search_path=' = any(p.proconfig)
+  select 1
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace,
+       unnest(p.proconfig) as cfg
+  where n.nspname = 'public'
+    and p.proname = 'tune_votes_sync_count'
+    and cfg like 'search_path=%'
 ) as hardened;
 
 select 'handle_new_user'            as expected, exists(
-  select 1 from pg_proc p
-  join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname='public' and p.proname='handle_new_user'
-    and 'search_path=' = any(p.proconfig)
+  select 1
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace,
+       unnest(p.proconfig) as cfg
+  where n.nspname = 'public'
+    and p.proname = 'handle_new_user'
+    and cfg like 'search_path=%'
 ) as hardened;
 
 select 'tunes_author_id_immutable'  as expected, exists(
   select 1 from pg_trigger
-  where tgname='tunes_author_id_immutable' and not tgisinternal
+  where tgname = 'tunes_author_id_immutable' and not tgisinternal
 ) as installed;
