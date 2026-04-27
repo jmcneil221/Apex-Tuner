@@ -1,17 +1,12 @@
 import Link from "next/link";
 import { Header } from "@/components/Header";
-import { TuneCard } from "@/components/TuneCard";
+import { TuneList } from "@/components/TuneList";
 import { isSupabaseConfigured } from "@/lib/auth";
+import { fetchTunes, DEFAULT_PAGE_SIZE } from "@/lib/queries/tunes";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type {
-  CarCategory,
-  DrivetrainKind,
-  TuneWithRelations,
-} from "@/lib/supabase/types";
+import type { CarCategory, DrivetrainKind } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
-
-const PAGE_SIZE = 12;
 
 const CATEGORIES: CarCategory[] = [
   "N100", "N200", "N300", "N400", "N500",
@@ -40,12 +35,14 @@ type Filters = {
 };
 
 function parseFilters(raw: Awaited<SearchParams>): Filters {
-  const category = raw.category && CATEGORIES.includes(raw.category as CarCategory)
-    ? (raw.category as CarCategory)
-    : null;
-  const drivetrain = raw.drivetrain && DRIVETRAINS.includes(raw.drivetrain as DrivetrainKind)
-    ? (raw.drivetrain as DrivetrainKind)
-    : null;
+  const category =
+    raw.category && CATEGORIES.includes(raw.category as CarCategory)
+      ? (raw.category as CarCategory)
+      : null;
+  const drivetrain =
+    raw.drivetrain && DRIVETRAINS.includes(raw.drivetrain as DrivetrainKind)
+      ? (raw.drivetrain as DrivetrainKind)
+      : null;
   const track = raw.track?.trim() || null;
   const max_pp = raw.max_pp && /^\d+$/.test(raw.max_pp) ? Number(raw.max_pp) : null;
   const q = raw.q?.trim() || null;
@@ -69,66 +66,6 @@ async function fetchTracks(): Promise<TrackOption[]> {
   }
 }
 
-type Result =
-  | { status: "not-configured" }
-  | { status: "error"; message: string }
-  | { status: "ok"; tunes: TuneWithRelations[]; total: number };
-
-async function fetchTunes(filters: Filters): Promise<Result> {
-  if (!isSupabaseConfigured()) return { status: "not-configured" };
-
-  try {
-    const supabase = await createSupabaseServerClient();
-    const from = (filters.page - 1) * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-
-    let query = supabase
-      .from("tunes")
-      .select(
-        `
-          id, author_id, car_id, track_id,
-          title, description, setup,
-          lap_time_ms, upvote_count, is_public,
-          power_hp, weight_kg, pp_total, is_validated,
-          created_at, updated_at,
-          cars!inner ( make, model, year, drivetrain, category ),
-          tracks ( name, layout ),
-          profiles!tunes_author_id_fkey ( username, display_name ),
-          forked_from:tunes!forked_from_id (
-            id,
-            title,
-            profiles!tunes_author_id_fkey ( username, display_name )
-          )
-        `,
-        { count: "exact" },
-      )
-      .eq("is_public", true);
-
-    if (filters.category) query = query.eq("cars.category", filters.category);
-    if (filters.drivetrain) query = query.eq("cars.drivetrain", filters.drivetrain);
-    if (filters.track) query = query.eq("track_id", filters.track);
-    if (filters.max_pp !== null) query = query.lte("pp_total", filters.max_pp);
-    if (filters.q) query = query.ilike("title", `%${filters.q}%`);
-
-    const { data, error, count } = await query
-      .order("upvote_count", { ascending: false })
-      .order("created_at", { ascending: false })
-      .range(from, to);
-
-    if (error) return { status: "error", message: error.message };
-    return {
-      status: "ok",
-      tunes: (data ?? []) as unknown as TuneWithRelations[],
-      total: count ?? 0,
-    };
-  } catch (err) {
-    return {
-      status: "error",
-      message: err instanceof Error ? err.message : "unknown error",
-    };
-  }
-}
-
 export default async function TunesPage({
   searchParams,
 }: {
@@ -136,10 +73,31 @@ export default async function TunesPage({
 }) {
   const raw = await searchParams;
   const filters = parseFilters(raw);
+
   const [tracks, result] = await Promise.all([
     fetchTracks(),
-    fetchTunes(filters),
+    fetchTunes({
+      category: filters.category,
+      drivetrain: filters.drivetrain,
+      trackId: filters.track,
+      maxPp: filters.max_pp,
+      q: filters.q,
+      page: filters.page,
+      pageSize: DEFAULT_PAGE_SIZE,
+    }),
   ]);
+
+  const buildHref = (page: number) => {
+    const params = new URLSearchParams();
+    if (filters.q) params.set("q", filters.q);
+    if (filters.category) params.set("category", filters.category);
+    if (filters.drivetrain) params.set("drivetrain", filters.drivetrain);
+    if (filters.track) params.set("track", filters.track);
+    if (filters.max_pp) params.set("max_pp", String(filters.max_pp));
+    if (page > 1) params.set("page", String(page));
+    const qs = params.toString();
+    return qs ? `/tunes?${qs}` : "/tunes";
+  };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -165,42 +123,20 @@ export default async function TunesPage({
 
         <FilterBar tracks={tracks} filters={filters} />
 
-        {result.status === "not-configured" ? (
-          <Notice tone="info" title="Supabase not configured">
-            Set <code className="font-mono text-apex-300">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
-            <code className="font-mono text-apex-300">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>.
-          </Notice>
-        ) : result.status === "error" ? (
-          <Notice tone="error" title="Couldn’t load tunes">
-            <span className="font-mono">{result.message}</span>
-          </Notice>
-        ) : result.tunes.length === 0 ? (
-          <Notice tone="info" title="No tunes match these filters">
-            Try clearing one or more filters, or{" "}
-            <Link href="/tunes/new" className="text-apex-300 hover:text-apex-200">
-              publish the first one
-            </Link>
-            .
-          </Notice>
-        ) : (
-          <>
-            <div className="mt-6 text-xs text-carbon-500">
-              Showing {(filters.page - 1) * PAGE_SIZE + 1}–
-              {Math.min(filters.page * PAGE_SIZE, result.total)} of {result.total}
-            </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {result.tunes.map((tune) => (
-                <TuneCard key={tune.id} tune={tune} />
-              ))}
-            </div>
-            <Pagination
-              page={filters.page}
-              total={result.total}
-              pageSize={PAGE_SIZE}
-              filters={raw}
-            />
-          </>
-        )}
+        <TuneList
+          result={result}
+          buildHref={buildHref}
+          emptyTitle="No tunes match these filters"
+          emptyMessage={
+            <>
+              Try clearing one or more filters, or{" "}
+              <Link href="/tunes/new" className="text-apex-300 hover:text-apex-200">
+                publish the first one
+              </Link>
+              .
+            </>
+          }
+        />
       </main>
     </div>
   );
@@ -300,82 +236,6 @@ function FilterField({
       </span>
       {children}
     </label>
-  );
-}
-
-function Pagination({
-  page,
-  total,
-  pageSize,
-  filters,
-}: {
-  page: number;
-  total: number;
-  pageSize: number;
-  filters: Awaited<SearchParams>;
-}) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (totalPages <= 1) return null;
-
-  const buildHref = (p: number) => {
-    const params = new URLSearchParams();
-    if (filters.q) params.set("q", filters.q);
-    if (filters.category) params.set("category", filters.category);
-    if (filters.drivetrain) params.set("drivetrain", filters.drivetrain);
-    if (filters.track) params.set("track", filters.track);
-    if (filters.max_pp) params.set("max_pp", filters.max_pp);
-    if (p > 1) params.set("page", String(p));
-    const qs = params.toString();
-    return qs ? `/tunes?${qs}` : "/tunes";
-  };
-
-  return (
-    <nav className="mt-8 flex items-center justify-between text-sm">
-      {page > 1 ? (
-        <Link
-          href={buildHref(page - 1)}
-          className="rounded-full border border-carbon-700 bg-carbon-900/60 px-4 py-2 text-carbon-200 hover:border-apex-500/40 hover:text-apex-200"
-        >
-          ← Previous
-        </Link>
-      ) : (
-        <span />
-      )}
-      <span className="font-mono text-xs text-carbon-500">
-        Page {page} / {totalPages}
-      </span>
-      {page < totalPages ? (
-        <Link
-          href={buildHref(page + 1)}
-          className="rounded-full border border-carbon-700 bg-carbon-900/60 px-4 py-2 text-carbon-200 hover:border-apex-500/40 hover:text-apex-200"
-        >
-          Next →
-        </Link>
-      ) : (
-        <span />
-      )}
-    </nav>
-  );
-}
-
-function Notice({
-  tone,
-  title,
-  children,
-}: {
-  tone: "info" | "error";
-  title: string;
-  children: React.ReactNode;
-}) {
-  const accent =
-    tone === "error"
-      ? "border-rev-500/40 bg-rev-500/10 text-rev-200"
-      : "border-carbon-800 bg-carbon-900/40 text-carbon-300";
-  return (
-    <div className={`mt-8 rounded-xl border p-6 ${accent}`}>
-      <h2 className="text-base font-semibold text-carbon-50">{title}</h2>
-      <div className="mt-2 text-sm">{children}</div>
-    </div>
   );
 }
 
