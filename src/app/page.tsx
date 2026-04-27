@@ -1,17 +1,23 @@
 import Link from "next/link";
 import { Header } from "@/components/Header";
+import { TuneCard } from "@/components/TuneCard";
 import { isSupabaseConfigured } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatLapTime, type TuneWithRelations } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
 
-async function fetchTopTunes(): Promise<TuneWithRelations[]> {
-  try {
-    if (!isSupabaseConfigured()) {
-      return [];
-    }
+type FeedResult =
+  | { status: "not-configured" }
+  | { status: "error"; message: string }
+  | { status: "ok"; tunes: TuneWithRelations[] };
 
+async function fetchTopTunes(): Promise<FeedResult> {
+  if (!isSupabaseConfigured()) {
+    return { status: "not-configured" };
+  }
+
+  try {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("tunes")
@@ -41,18 +47,33 @@ async function fetchTopTunes(): Promise<TuneWithRelations[]> {
 
     if (error) {
       console.warn("[apextuner] tunes query failed:", error.message);
-      return [];
+      return { status: "error", message: error.message };
     }
-    return (data ?? []) as unknown as TuneWithRelations[];
+
+    return {
+      status: "ok",
+      tunes: (data ?? []) as unknown as TuneWithRelations[],
+    };
   } catch (err) {
-    console.warn("[apextuner] supabase unavailable:", err);
-    return [];
+    const message = err instanceof Error ? err.message : "unknown error";
+    console.warn("[apextuner] supabase unavailable:", message);
+    return { status: "error", message };
   }
 }
 
 export default async function Home() {
-  const configured = isSupabaseConfigured();
-  const tunes = configured ? await fetchTopTunes() : [];
+  const feed = await fetchTopTunes();
+  const tunes = feed.status === "ok" ? feed.tunes : [];
+
+  const bestLapMs = tunes
+    .map((t) => t.lap_time_ms)
+    .filter((v): v is number => typeof v === "number")
+    .sort((a, b) => a - b)[0];
+
+  const totalUpvotes = tunes.reduce(
+    (sum, t) => sum + (t.upvote_count ?? 0),
+    0,
+  );
 
   return (
     <div className="flex flex-1 flex-col">
@@ -97,23 +118,9 @@ export default async function Home() {
               <Stat label="Tunes" value={tunes.length.toString()} />
               <Stat
                 label="Best lap"
-                value={
-                  tunes.find((t) => t.lap_time_ms)
-                    ? formatLapTime(
-                        tunes
-                          .map((t) => t.lap_time_ms)
-                          .filter((v): v is number => typeof v === "number")
-                          .sort((a, b) => a - b)[0]!,
-                      )
-                    : "—"
-                }
+                value={bestLapMs ? formatLapTime(bestLapMs) : "—"}
               />
-              <Stat
-                label="Upvotes"
-                value={tunes
-                  .reduce((sum, t) => sum + (t.upvote_count ?? 0), 0)
-                  .toString()}
-              />
+              <Stat label="Upvotes" value={totalUpvotes.toString()} />
             </dl>
           </div>
         </section>
@@ -137,10 +144,10 @@ export default async function Home() {
           </div>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {tunes.length === 0 ? (
-              <EmptyState configured={configured} />
+            {feed.status === "ok" && feed.tunes.length > 0 ? (
+              feed.tunes.map((tune) => <TuneCard key={tune.id} tune={tune} />)
             ) : (
-              tunes.map((tune) => <TuneCard key={tune.id} tune={tune} />)
+              <FeedFallback feed={feed} />
             )}
           </div>
         </section>
@@ -171,92 +178,75 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TuneCard({ tune }: { tune: TuneWithRelations }) {
-  const car = tune.cars
-    ? `${tune.cars.year} ${tune.cars.make} ${tune.cars.model}`
-    : "Unknown car";
-  const track = tune.tracks
-    ? `${tune.tracks.name} — ${tune.tracks.layout}`
-    : null;
-  const author =
-    tune.profiles?.display_name ?? tune.profiles?.username ?? "anonymous";
+function FeedFallback({ feed }: { feed: FeedResult }) {
+  if (feed.status === "not-configured") {
+    return (
+      <Fallback tone="info" title="Supabase not configured">
+        Set{" "}
+        <Code>NEXT_PUBLIC_SUPABASE_URL</Code> and{" "}
+        <Code>NEXT_PUBLIC_SUPABASE_ANON_KEY</Code> in{" "}
+        <Code>.env.local</Code>, then apply the migration and seed.
+      </Fallback>
+    );
+  }
+
+  if (feed.status === "error") {
+    return (
+      <Fallback tone="error" title="Couldn’t load tunes">
+        The leaderboard query failed. Most likely cause: an RLS policy or a
+        connectivity issue between the Next.js server and Supabase. Check the
+        server logs for the full error.
+        <span className="mt-3 block rounded-md border border-rev-500/30 bg-rev-500/5 px-3 py-2 font-mono text-[11px] text-rev-200">
+          {feed.message}
+        </span>
+      </Fallback>
+    );
+  }
 
   return (
-    <article className="group flex flex-col rounded-xl border border-carbon-800 bg-carbon-900/50 p-5 transition hover:border-apex-500/40 hover:bg-carbon-900/80">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold text-carbon-50 group-hover:text-apex-200">
-            {tune.title}
-          </h3>
-          <p className="mt-0.5 text-xs uppercase tracking-wider text-carbon-400">
-            {car}
-          </p>
-        </div>
-        <div className="flex items-center gap-1 rounded-full border border-carbon-700 bg-carbon-950 px-2.5 py-1 text-xs font-medium text-apex-300">
-          <span className="text-apex-400">▲</span>
-          {tune.upvote_count}
-        </div>
-      </header>
-      {tune.description ? (
-        <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-carbon-300">
-          {tune.description}
-        </p>
-      ) : null}
-      <footer className="mt-4 flex items-center justify-between border-t border-carbon-800 pt-3 text-xs text-carbon-400">
-        <span className="truncate">{track ?? "Any track"}</span>
-        <span className="flex items-center gap-3">
-          <span className="font-mono text-rev-400">
-            {formatLapTime(tune.lap_time_ms)}
-          </span>
-          <span className="text-carbon-500">@{author}</span>
-        </span>
-      </footer>
-    </article>
+    <Fallback tone="info" title="No tunes published yet">
+      Cars and tracks come from the seed data; the leaderboard fills up as the
+      community publishes tunes.
+      <Link
+        href="/tunes/new"
+        className="mt-5 inline-flex h-10 items-center justify-center rounded-full bg-apex-500 px-5 text-sm font-semibold text-carbon-950 shadow-apex transition hover:bg-apex-400"
+      >
+        Publish the first tune
+      </Link>
+    </Fallback>
   );
 }
 
-function EmptyState({ configured }: { configured: boolean }) {
+function Fallback({
+  tone,
+  title,
+  children,
+}: {
+  tone: "info" | "error";
+  title: string;
+  children: React.ReactNode;
+}) {
+  const accent =
+    tone === "error"
+      ? "border-rev-500/40 bg-rev-500/10 text-rev-300 ring-rev-500/30"
+      : "border-carbon-800 bg-apex-500/10 text-apex-300 ring-apex-500/30";
   return (
     <div className="col-span-full flex flex-col items-center justify-center rounded-xl border border-dashed border-carbon-800 bg-carbon-900/30 px-6 py-16 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-apex-500/10 text-apex-300 ring-1 ring-apex-500/30">
-        <span className="text-xl">◎</span>
+      <div
+        className={`flex h-12 w-12 items-center justify-center rounded-full ring-1 ${accent}`}
+      >
+        <span className="text-xl">{tone === "error" ? "⚠" : "◎"}</span>
       </div>
-      {configured ? (
-        <>
-          <h3 className="mt-4 text-base font-semibold text-carbon-100">
-            No tunes published yet
-          </h3>
-          <p className="mt-2 max-w-md text-sm text-carbon-400">
-            Be the first to publish a setup sheet. Cars and tracks come from
-            the seed data; the leaderboard fills up as the community publishes
-            tunes.
-          </p>
-          <Link
-            href="/tunes/new"
-            className="mt-5 inline-flex h-10 items-center justify-center rounded-full bg-apex-500 px-5 text-sm font-semibold text-carbon-950 shadow-apex transition hover:bg-apex-400"
-          >
-            Publish the first tune
-          </Link>
-        </>
-      ) : (
-        <>
-          <h3 className="mt-4 text-base font-semibold text-carbon-100">
-            Supabase not configured
-          </h3>
-          <p className="mt-2 max-w-md text-sm text-carbon-400">
-            Set{" "}
-            <code className="rounded bg-carbon-950 px-1.5 py-0.5 font-mono text-[11px] text-apex-300">
-              NEXT_PUBLIC_SUPABASE_URL
-            </code>{" "}
-            and{" "}
-            <code className="rounded bg-carbon-950 px-1.5 py-0.5 font-mono text-[11px] text-apex-300">
-              NEXT_PUBLIC_SUPABASE_ANON_KEY
-            </code>{" "}
-            in <code className="font-mono text-[11px]">.env.local</code>, then
-            apply the migration and seed.
-          </p>
-        </>
-      )}
+      <h3 className="mt-4 text-base font-semibold text-carbon-100">{title}</h3>
+      <div className="mt-2 max-w-md text-sm text-carbon-400">{children}</div>
     </div>
+  );
+}
+
+function Code({ children }: { children: React.ReactNode }) {
+  return (
+    <code className="rounded bg-carbon-950 px-1.5 py-0.5 font-mono text-[11px] text-apex-300">
+      {children}
+    </code>
   );
 }
