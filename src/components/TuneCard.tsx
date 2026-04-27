@@ -17,6 +17,10 @@ export function TuneCard({ tune }: { tune: TuneWithRelations }) {
   const category = tune.cars?.category;
   const drivetrain = tune.cars?.drivetrain;
   const bop = formatBoP(tune.pp_total, tune.power_hp, tune.weight_kg);
+  const forkedFromAuthor =
+    tune.forked_from?.profiles?.username ??
+    tune.forked_from?.profiles?.display_name ??
+    null;
 
   return (
     <Link
@@ -32,6 +36,12 @@ export function TuneCard({ tune }: { tune: TuneWithRelations }) {
           <p className="mt-0.5 truncate text-xs uppercase tracking-wider text-carbon-400">
             {car}
           </p>
+          {forkedFromAuthor ? (
+            <p className="mt-1 truncate text-[11px] text-carbon-500">
+              <span className="text-apex-400/70">⑂</span> via{" "}
+              <span className="text-carbon-300">@{forkedFromAuthor}</span>
+            </p>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1 rounded-full border border-carbon-700 bg-carbon-950 px-2.5 py-1 text-xs font-medium text-apex-300">
           <span className="text-apex-400">▲</span>

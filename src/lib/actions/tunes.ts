@@ -200,6 +200,85 @@ export async function updateTune(formData: FormData): Promise<void> {
   redirect(`/tunes/${tuneId}`);
 }
 
+export async function forkTune(formData: FormData): Promise<void> {
+  const tuneId = String(formData.get("tune_id") ?? "").trim();
+  if (!tuneId) {
+    redirect("/");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect(`/login?next=/tunes/${tuneId}`);
+  }
+
+  const { data: parent, error: lookupError } = await supabase
+    .from("tunes")
+    .select(
+      "id, author_id, car_id, track_id, title, description, setup, pp_total, power_hp, weight_kg",
+    )
+    .eq("id", tuneId)
+    .maybeSingle();
+
+  if (lookupError || !parent) {
+    redirect(
+      `/tunes/${tuneId}?error=${encodeURIComponent(
+        lookupError?.message ?? "Tune not found.",
+      )}`,
+    );
+  }
+
+  if (parent.author_id === user.id) {
+    redirect(
+      `/tunes/${tuneId}?error=${encodeURIComponent(
+        "You already own this tune — edit it directly.",
+      )}`,
+    );
+  }
+
+  const forkTitle = parent.title.startsWith("Copy of ")
+    ? parent.title
+    : `Copy of ${parent.title}`;
+
+  const { data: fork, error: insertError } = await supabase
+    .from("tunes")
+    .insert({
+      author_id: user.id,
+      forked_from_id: parent.id,
+      car_id: parent.car_id,
+      track_id: parent.track_id,
+      title: forkTitle,
+      description: parent.description,
+      setup: parent.setup,
+      pp_total: parent.pp_total,
+      power_hp: parent.power_hp,
+      weight_kg: parent.weight_kg,
+      // Forks intentionally start without a lap time — that's the
+      // forker's number to set after they iterate on the setup.
+      lap_time_ms: null,
+      // Private by default so the forker can tweak before publishing.
+      is_public: false,
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !fork) {
+    redirect(
+      `/tunes/${tuneId}?error=${encodeURIComponent(
+        insertError?.message ?? "Could not create fork.",
+      )}`,
+    );
+  }
+
+  revalidatePath("/");
+  revalidatePath("/tunes");
+  revalidatePath(`/tunes/${tuneId}`);
+  redirect(`/tunes/${fork.id}/edit`);
+}
+
 export async function deleteTune(formData: FormData): Promise<void> {
   const tuneId = String(formData.get("tune_id") ?? "").trim();
   if (!tuneId) {

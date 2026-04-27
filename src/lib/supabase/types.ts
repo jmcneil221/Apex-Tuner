@@ -20,9 +20,19 @@ export type Tune = {
   weight_kg: number | null;
   pp_total: number | null;
   is_validated: boolean;
+  forked_from_id: string | null;
   created_at: string;
   updated_at: string;
 };
+
+export type ForkedFromRelation = {
+  id: string;
+  title: string;
+  profiles: {
+    username: string;
+    display_name: string | null;
+  } | null;
+} | null;
 
 export function formatBoP(
   pp: number | null,
@@ -54,6 +64,7 @@ export type TuneWithRelations = Tune & {
     display_name: string | null;
     avatar_url?: string | null;
   } | null;
+  forked_from?: ForkedFromRelation;
 };
 
 export function formatLapTime(ms: number | null): string {

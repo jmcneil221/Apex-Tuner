@@ -4,6 +4,7 @@ import { Header } from "@/components/Header";
 import { SetupSheet } from "@/components/SetupSheet";
 import { UpvoteButton } from "@/components/UpvoteButton";
 import { DeleteTuneButton } from "@/components/DeleteTuneButton";
+import { forkTune } from "@/lib/actions/tunes";
 import { isSupabaseConfigured } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -47,7 +48,12 @@ async function loadTune(id: string): Promise<LoadResult> {
             created_at, updated_at,
             cars ( make, model, year, drivetrain, category ),
             tracks ( name, layout, country ),
-            profiles!tunes_author_id_fkey ( username, display_name, avatar_url )
+            profiles!tunes_author_id_fkey ( username, display_name, avatar_url ),
+            forked_from:tunes!forked_from_id (
+              id,
+              title,
+              profiles!tunes_author_id_fkey ( username, display_name )
+            )
           `,
         )
         .eq("id", id)
@@ -152,6 +158,8 @@ export default async function TuneDetailPage({ params }: { params: Params }) {
     month: "short",
     day: "numeric",
   });
+  const forkParent = tune.forked_from;
+  const forkParentUsername = forkParent?.profiles?.username ?? null;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -199,6 +207,28 @@ export default async function TuneDetailPage({ params }: { params: Params }) {
                 {trackLabel}
                 {tune.tracks?.country ? ` · ${tune.tracks.country}` : ""}
               </p>
+              {forkParent ? (
+                <p className="mt-3 text-xs text-carbon-400">
+                  <span className="text-apex-400/70">⑂</span> Forked from{" "}
+                  <Link
+                    href={`/tunes/${forkParent.id}`}
+                    className="text-carbon-200 hover:text-apex-300"
+                  >
+                    {forkParent.title}
+                  </Link>
+                  {forkParentUsername ? (
+                    <>
+                      {" by "}
+                      <Link
+                        href={`/profile/${forkParentUsername}`}
+                        className="text-carbon-200 hover:text-apex-300"
+                      >
+                        @{forkParentUsername}
+                      </Link>
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex shrink-0 flex-col items-start gap-4 md:items-end">
@@ -239,6 +269,17 @@ export default async function TuneDetailPage({ params }: { params: Params }) {
                   </Link>
                   <DeleteTuneButton tuneId={tune.id} title={tune.title} />
                 </div>
+              ) : signedIn ? (
+                <form action={forkTune}>
+                  <input type="hidden" name="tune_id" value={tune.id} />
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-2 rounded-full border border-carbon-700 bg-carbon-900/60 px-4 py-2 text-xs font-semibold text-carbon-200 transition hover:border-apex-500/40 hover:text-apex-200"
+                  >
+                    <span aria-hidden="true" className="text-apex-400">⑂</span>
+                    Fork setup
+                  </button>
+                </form>
               ) : null}
             </div>
           </div>

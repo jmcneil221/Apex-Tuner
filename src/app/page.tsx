@@ -41,7 +41,12 @@ async function fetchTopTunes(): Promise<FeedResult> {
           updated_at,
           cars ( make, model, year, drivetrain, category ),
           tracks ( name, layout ),
-          profiles!tunes_author_id_fkey ( username, display_name )
+          profiles!tunes_author_id_fkey ( username, display_name ),
+          forked_from:tunes!forked_from_id (
+            id,
+            title,
+            profiles!tunes_author_id_fkey ( username, display_name )
+          )
         `,
       )
       .eq("is_public", true)
