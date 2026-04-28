@@ -5,13 +5,27 @@ import { TuneList } from "@/components/TuneList";
 import { isSupabaseConfigured } from "@/lib/auth";
 import { fetchTunes } from "@/lib/queries/tunes";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { CarCategory, DrivetrainKind } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const CATEGORIES: CarCategory[] = [
+  "N100", "N200", "N300", "N400", "N500",
+  "N600", "N700", "N800", "N900", "N1000",
+  "Gr.4", "Gr.3", "Gr.2", "Gr.1", "Gr.B", "Gr.X",
+];
+
+const DRIVETRAINS: DrivetrainKind[] = ["FF", "FR", "MR", "RR", "4WD"];
+
 type Params = Promise<{ id: string }>;
-type SearchParams = Promise<{ page?: string }>;
+type SearchParams = Promise<{
+  page?: string;
+  category?: string;
+  drivetrain?: string;
+  max_pp?: string;
+}>;
 
 type TrackRow = {
   id: string;
@@ -48,6 +62,15 @@ export default async function TrackDetailPage({
   const { id } = await params;
   const sp = await searchParams;
   const page = sp.page && /^\d+$/.test(sp.page) ? Math.max(1, Number(sp.page)) : 1;
+  const category =
+    sp.category && CATEGORIES.includes(sp.category as CarCategory)
+      ? (sp.category as CarCategory)
+      : null;
+  const drivetrain =
+    sp.drivetrain && DRIVETRAINS.includes(sp.drivetrain as DrivetrainKind)
+      ? (sp.drivetrain as DrivetrainKind)
+      : null;
+  const maxPp = sp.max_pp && /^\d+$/.test(sp.max_pp) ? Number(sp.max_pp) : null;
 
   if (!UUID_RE.test(id)) notFound();
   if (!isSupabaseConfigured()) notFound();
@@ -64,8 +87,23 @@ export default async function TrackDetailPage({
   }
   if (!track) notFound();
 
-  const result = await fetchTunes({ trackId: id, page });
-  const buildHref = (p: number) => (p > 1 ? `/tracks/${id}?page=${p}` : `/tracks/${id}`);
+  const result = await fetchTunes({
+    trackId: id,
+    category,
+    drivetrain,
+    maxPp,
+    page,
+  });
+
+  const buildHref = (p: number) => {
+    const params = new URLSearchParams();
+    if (category) params.set("category", category);
+    if (drivetrain) params.set("drivetrain", drivetrain);
+    if (maxPp) params.set("max_pp", String(maxPp));
+    if (p > 1) params.set("page", String(p));
+    const qs = params.toString();
+    return qs ? `/tracks/${id}?${qs}` : `/tracks/${id}`;
+  };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -89,22 +127,26 @@ export default async function TrackDetailPage({
           </h1>
           <p className="mt-1 text-base text-carbon-300">{track.layout}</p>
           <p className="mt-2 text-sm text-carbon-400">
-            {result.status === "ok" ? result.total : 0} published tune
+            {result.status === "ok" ? result.total : 0} matching tune
             {result.status === "ok" && result.total === 1 ? "" : "s"}
           </p>
         </section>
 
-        <section className="mt-8">
-          <h2 className="text-lg font-semibold text-carbon-50">Tunes</h2>
+        <FilterForm
+          trackId={id}
+          defaults={{ category, drivetrain, max_pp: maxPp }}
+        />
+
+        <section className="mt-2">
           <TuneList
             result={result}
             buildHref={buildHref}
-            emptyTitle="No published tunes for this track yet"
+            emptyTitle="No tunes match these filters"
             emptyMessage={
               <>
-                First lap?{" "}
+                Clear filters or{" "}
                 <Link href="/tunes/new" className="text-apex-300 hover:text-apex-200">
-                  Publish a tune
+                  publish one
                 </Link>
                 .
               </>
@@ -115,6 +157,100 @@ export default async function TrackDetailPage({
     </div>
   );
 }
+
+function FilterForm({
+  trackId,
+  defaults,
+}: {
+  trackId: string;
+  defaults: {
+    category: CarCategory | null;
+    drivetrain: DrivetrainKind | null;
+    max_pp: number | null;
+  };
+}) {
+  return (
+    <form
+      method="get"
+      action={`/tracks/${trackId}`}
+      className="mt-6 flex flex-wrap items-end gap-3 rounded-xl border border-carbon-800 bg-carbon-900/40 p-4"
+    >
+      <FilterField label="Category">
+        <select
+          name="category"
+          defaultValue={defaults.category ?? ""}
+          className={inputCls}
+        >
+          <option value="">Any</option>
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </FilterField>
+      <FilterField label="Drivetrain">
+        <select
+          name="drivetrain"
+          defaultValue={defaults.drivetrain ?? ""}
+          className={inputCls}
+        >
+          <option value="">Any</option>
+          {DRIVETRAINS.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+      </FilterField>
+      <FilterField label="Max PP">
+        <input
+          type="number"
+          name="max_pp"
+          min={1}
+          step={1}
+          defaultValue={defaults.max_pp ?? ""}
+          placeholder="e.g. 500"
+          className={inputCls}
+        />
+      </FilterField>
+      <div className="flex items-center gap-3">
+        <button
+          type="submit"
+          className="inline-flex h-10 items-center justify-center rounded-full bg-apex-500 px-5 text-sm font-semibold text-carbon-950 shadow-apex transition hover:bg-apex-400"
+        >
+          Apply
+        </button>
+        <Link
+          href={`/tracks/${trackId}`}
+          className="text-xs uppercase tracking-[0.2em] text-carbon-400 hover:text-apex-300"
+        >
+          Clear
+        </Link>
+      </div>
+    </form>
+  );
+}
+
+function FilterField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex min-w-[140px] flex-1 flex-col">
+      <span className="mb-1 text-[10px] font-medium uppercase tracking-[0.2em] text-carbon-400">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const inputCls =
+  "w-full rounded-lg border border-carbon-800 bg-carbon-950/80 px-3 py-2 text-sm text-carbon-100 placeholder:text-carbon-500 focus:border-apex-500/60 focus:outline-none focus:ring-1 focus:ring-apex-500/40";
 
 function ErrorView({ title, message }: { title: string; message: string }) {
   return (

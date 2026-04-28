@@ -12,7 +12,11 @@ export const dynamic = "force-dynamic";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Params = Promise<{ id: string }>;
-type SearchParams = Promise<{ page?: string }>;
+type SearchParams = Promise<{
+  page?: string;
+  track?: string;
+  max_pp?: string;
+}>;
 
 type CarRow = {
   id: string;
@@ -22,6 +26,8 @@ type CarRow = {
   drivetrain: DrivetrainKind;
   category: CarCategory;
 };
+
+type TrackOption = { id: string; name: string; layout: string };
 
 export async function generateMetadata({ params }: { params: Params }) {
   const { id } = await params;
@@ -51,26 +57,44 @@ export default async function CarDetailPage({
   const { id } = await params;
   const sp = await searchParams;
   const page = sp.page && /^\d+$/.test(sp.page) ? Math.max(1, Number(sp.page)) : 1;
+  const trackId = sp.track?.trim() || null;
+  const maxPp = sp.max_pp && /^\d+$/.test(sp.max_pp) ? Number(sp.max_pp) : null;
 
   if (!UUID_RE.test(id)) notFound();
   if (!isSupabaseConfigured()) notFound();
 
   const supabase = await createSupabaseServerClient();
-  const { data: car, error: carError } = await supabase
-    .from("cars")
-    .select("id, make, model, year, drivetrain, category")
-    .eq("id", id)
-    .maybeSingle<CarRow>();
+  const [{ data: car, error: carError }, { data: tracksData }] = await Promise.all([
+    supabase
+      .from("cars")
+      .select("id, make, model, year, drivetrain, category")
+      .eq("id", id)
+      .maybeSingle<CarRow>(),
+    supabase.from("tracks").select("id, name, layout").order("name"),
+  ]);
 
   if (carError) {
-    return (
-      <ErrorView title="Couldn’t load this car" message={carError.message} />
-    );
+    return <ErrorView title="Couldn’t load this car" message={carError.message} />;
   }
   if (!car) notFound();
 
-  const result = await fetchTunes({ carId: id, page });
-  const buildHref = (p: number) => (p > 1 ? `/cars/${id}?page=${p}` : `/cars/${id}`);
+  const tracks = (tracksData ?? []) as TrackOption[];
+
+  const result = await fetchTunes({
+    carId: id,
+    trackId,
+    maxPp,
+    page,
+  });
+
+  const buildHref = (p: number) => {
+    const params = new URLSearchParams();
+    if (trackId) params.set("track", trackId);
+    if (maxPp) params.set("max_pp", String(maxPp));
+    if (p > 1) params.set("page", String(p));
+    const qs = params.toString();
+    return qs ? `/cars/${id}?${qs}` : `/cars/${id}`;
+  };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -96,22 +120,27 @@ export default async function CarDetailPage({
             {car.year} {car.make} {car.model}
           </h1>
           <p className="mt-2 text-sm text-carbon-400">
-            {result.status === "ok" ? result.total : 0} published tune
+            {result.status === "ok" ? result.total : 0} matching tune
             {result.status === "ok" && result.total === 1 ? "" : "s"}
           </p>
         </section>
 
-        <section className="mt-8">
-          <h2 className="text-lg font-semibold text-carbon-50">Tunes</h2>
+        <FilterForm
+          carId={id}
+          tracks={tracks}
+          defaults={{ track: trackId, max_pp: maxPp }}
+        />
+
+        <section className="mt-2">
           <TuneList
             result={result}
             buildHref={buildHref}
-            emptyTitle="No published tunes for this car yet"
+            emptyTitle="No tunes match these filters"
             emptyMessage={
               <>
-                Got a setup?{" "}
+                Clear filters or{" "}
                 <Link href="/tunes/new" className="text-apex-300 hover:text-apex-200">
-                  Publish one
+                  publish one
                 </Link>
                 .
               </>
@@ -122,6 +151,80 @@ export default async function CarDetailPage({
     </div>
   );
 }
+
+function FilterForm({
+  carId,
+  tracks,
+  defaults,
+}: {
+  carId: string;
+  tracks: TrackOption[];
+  defaults: { track: string | null; max_pp: number | null };
+}) {
+  return (
+    <form
+      method="get"
+      action={`/cars/${carId}`}
+      className="mt-6 flex flex-wrap items-end gap-3 rounded-xl border border-carbon-800 bg-carbon-900/40 p-4"
+    >
+      <FilterField label="Track">
+        <select name="track" defaultValue={defaults.track ?? ""} className={inputCls}>
+          <option value="">Any track</option>
+          {tracks.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name} — {t.layout}
+            </option>
+          ))}
+        </select>
+      </FilterField>
+      <FilterField label="Max PP">
+        <input
+          type="number"
+          name="max_pp"
+          min={1}
+          step={1}
+          defaultValue={defaults.max_pp ?? ""}
+          placeholder="e.g. 500"
+          className={inputCls}
+        />
+      </FilterField>
+      <div className="flex items-center gap-3">
+        <button
+          type="submit"
+          className="inline-flex h-10 items-center justify-center rounded-full bg-apex-500 px-5 text-sm font-semibold text-carbon-950 shadow-apex transition hover:bg-apex-400"
+        >
+          Apply
+        </button>
+        <Link
+          href={`/cars/${carId}`}
+          className="text-xs uppercase tracking-[0.2em] text-carbon-400 hover:text-apex-300"
+        >
+          Clear
+        </Link>
+      </div>
+    </form>
+  );
+}
+
+function FilterField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex min-w-[180px] flex-1 flex-col">
+      <span className="mb-1 text-[10px] font-medium uppercase tracking-[0.2em] text-carbon-400">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const inputCls =
+  "w-full rounded-lg border border-carbon-800 bg-carbon-950/80 px-3 py-2 text-sm text-carbon-100 placeholder:text-carbon-500 focus:border-apex-500/60 focus:outline-none focus:ring-1 focus:ring-apex-500/40";
 
 function ErrorView({ title, message }: { title: string; message: string }) {
   return (

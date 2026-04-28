@@ -1,17 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Header } from "@/components/Header";
-import { TuneCard } from "@/components/TuneCard";
+import { TuneList } from "@/components/TuneList";
 import { getCurrentUser, isSupabaseConfigured } from "@/lib/auth";
+import { fetchTunes } from "@/lib/queries/tunes";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import {
-  formatLapTime,
-  type TuneWithRelations,
-} from "@/lib/supabase/types";
+import { formatLapTime } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
 
 type Params = Promise<{ username: string }>;
+type SearchParams = Promise<{ page?: string }>;
 
 type ProfileRow = {
   id: string;
@@ -22,6 +21,8 @@ type ProfileRow = {
   created_at: string;
 };
 
+type AggregateRow = { upvote_count: number; lap_time_ms: number | null };
+
 export async function generateMetadata({ params }: { params: Params }) {
   const { username } = await params;
   return {
@@ -30,8 +31,17 @@ export async function generateMetadata({ params }: { params: Params }) {
   };
 }
 
-export default async function ProfilePage({ params }: { params: Params }) {
+export default async function ProfilePage({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams: SearchParams;
+}) {
   const { username } = await params;
+  const sp = await searchParams;
+  const page = sp.page && /^\d+$/.test(sp.page) ? Math.max(1, Number(sp.page)) : 1;
+
   if (!isSupabaseConfigured()) notFound();
 
   const supabase = await createSupabaseServerClient();
@@ -63,43 +73,40 @@ export default async function ProfilePage({ params }: { params: Params }) {
   const currentUser = await getCurrentUser();
   const isMe = currentUser?.id === profile.id;
 
-  // Inverse FK embed: the leaderboard query embeds profiles inside tunes;
-  // here we go the other way and need the same disambiguation against the
-  // tune_votes M:N path.
-  const { data: tunesData } = await supabase
+  // Hero stats: lifetime totals across the driver's PUBLIC tunes.
+  // Pagination on the grid below would otherwise mean stats reflect
+  // only the visible page, which would silently regress the page's
+  // "career stats" feel. Run a separate aggregate fetch.
+  const { data: aggregateRows } = await supabase
     .from("tunes")
-    .select(
-      `
-        id, author_id, car_id, track_id,
-        title, description, setup,
-        lap_time_ms, upvote_count, is_public,
-        power_hp, weight_kg, pp_total, is_validated,
-        created_at, updated_at,
-        cars ( make, model, year, drivetrain, category ),
-        tracks ( name, layout ),
-        profiles!tunes_author_id_fkey ( username, display_name ),
-        forked_from:tunes!forked_from_id (
-          id,
-          title,
-          profiles!tunes_author_id_fkey ( username, display_name )
-        )
-      `,
-    )
+    .select("upvote_count, lap_time_ms")
     .eq("author_id", profile.id)
-    .order("upvote_count", { ascending: false })
-    .order("created_at", { ascending: false });
+    .eq("is_public", true);
 
-  const tunes = (tunesData ?? []) as unknown as TuneWithRelations[];
-  const totalUpvotes = tunes.reduce((sum, t) => sum + (t.upvote_count ?? 0), 0);
-  const bestLap = tunes
-    .map((t) => t.lap_time_ms)
-    .filter((v): v is number => typeof v === "number")
+  const aggregate = (aggregateRows ?? []) as AggregateRow[];
+  const publicTuneCount = aggregate.length;
+  const totalUpvotes = aggregate.reduce((s, r) => s + (r.upvote_count ?? 0), 0);
+  const bestLap = aggregate
+    .map((r) => r.lap_time_ms)
+    .filter((v): v is number => typeof v === "number" && v > 0)
     .sort((a, b) => a - b)[0];
+
+  // Grid: includes private tunes when the viewer is the owner (RLS
+  // already enforces this). publicOnly=false defers to the policy:
+  // tunes_select_public_or_author = (is_public OR auth.uid() = author_id).
+  const gridResult = await fetchTunes({
+    authorId: profile.id,
+    page,
+    publicOnly: !isMe,
+  });
+
+  const buildHref = (p: number) =>
+    p > 1 ? `/profile/${profile.username}?page=${p}` : `/profile/${profile.username}`;
+
   const joined = new Date(profile.created_at).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
   });
-
   const displayName = profile.display_name ?? profile.username;
 
   return (
@@ -138,7 +145,7 @@ export default async function ProfilePage({ params }: { params: Params }) {
             </div>
 
             <div className="flex shrink-0 items-start gap-6 md:gap-8">
-              <Stat label="Tunes" value={tunes.length.toString()} />
+              <Stat label="Public tunes" value={publicTuneCount.toString()} />
               <Stat label="Upvotes" value={totalUpvotes.toString()} />
               <Stat
                 label="Best lap"
@@ -166,20 +173,28 @@ export default async function ProfilePage({ params }: { params: Params }) {
         <section className="mt-8">
           <h2 className="text-lg font-semibold text-carbon-50">
             Published tunes
+            {isMe ? (
+              <span className="ml-2 text-xs font-normal text-carbon-500">
+                (including private)
+              </span>
+            ) : null}
           </h2>
-          {tunes.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-dashed border-carbon-800 bg-carbon-900/30 p-8 text-center text-sm text-carbon-400">
-              {isMe
-                ? "You haven't published any tunes yet."
-                : `@${profile.username} hasn't published any tunes yet.`}
-            </div>
-          ) : (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {tunes.map((tune) => (
-                <TuneCard key={tune.id} tune={tune} />
-              ))}
-            </div>
-          )}
+          <TuneList
+            result={gridResult}
+            buildHref={buildHref}
+            emptyTitle={
+              isMe
+                ? "You haven't published any tunes yet"
+                : `@${profile.username} hasn't published any tunes yet`
+            }
+            emptyMessage={
+              isMe ? (
+                <Link href="/tunes/new" className="text-apex-300 hover:text-apex-200">
+                  Publish your first tune →
+                </Link>
+              ) : null
+            }
+          />
         </section>
       </main>
     </div>
